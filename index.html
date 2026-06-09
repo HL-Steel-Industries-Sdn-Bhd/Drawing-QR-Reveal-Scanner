@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>QR Scanner - Sales Order & Item Decoder</title>
+
+    <!-- html5-qrcode 库 - 移动端扫描核心 -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js">
+    </script>
+    <!-- jsQR 库 - 桌面端备用扫描方案 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js">
+    </script>
+
+    <style>
+        :root {
+            --bg: #f0f2f5;
+            --card-bg: #ffffff;
+            --primary: #4f6ef7;
+            --primary-dark: #3b54d4;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ===== 头部 ===== */
+        .header {
+            text-align: center;
+            padding: 8px 0;
+        }
+
+        .header-icon {
+            font-size: 40px;
+            margin-bottom: 6px;
+            display: block;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-8px);
+            }
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.3px;
+        }
+
+        .header p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            font-weight: 400;
+        }
+
+        /* ===== 扫描器卡片 ===== */
+        .scanner-card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .scanner-card.scanning {
+            box-shadow: var(--shadow-lg);
+        }
+
+        /* 扫描器容器 */
+        .scanner-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            max-height: 420px;
+            background: #0f0f0f;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        #scannerContainer {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #scannerContainer video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #scannerCanvas {
+            display: none;
+        }
+
+        /* 扫描框四角装饰 */
+        .scan-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 65%;
+            height: 65%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .scan-frame .corner {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            border-color: rgba(255, 255, 255, 0.9);
+            border-style: solid;
+            transition: all 0.5s ease;
+        }
+
+        .scan-frame .corner.tl {
+            top: 0;
+            left: 0;
+            border-width: 3px 0 0 3px;
+            border-radius: 6px 0 0 0;
+        }
+        .scan-frame .corner.tr {
+            top: 0;
+            right: 0;
+            border-width: 3px 3px 0 0;
+            border-radius: 0 6px 0 0;
+        }
+        .scan-frame .corner.bl {
+            bottom: 0;
+            left: 0;
+            border-width: 0 0 3px 3px;
+            border-radius: 0 0 0 6px;
+        }
+        .scan-frame .corner.br {
+            bottom: 0;
+            right: 0;
+            border-width: 0 3px 3px 0;
+            border-radius: 0 0 6px 0;
+        }
+
+        /* 扫描线动画 */
+        .scan-line {
+            position: absolute;
+            top: 17.5%;
+            left: 17.5%;
+            width: 65%;
+            height: 2px;
+            background: linear-gradient(90deg,
+                    transparent,
+                    rgba(79, 110, 247, 0.9) 20%,
+                    rgba(79, 110, 247, 0.9) 80%,
+                    transparent);
+            z-index: 9;
+            pointer-events: none;
+            animation: scanLine 2.2s ease-in-out infinite;
+            box-shadow: 0 0 12px rgba(79, 110, 247, 0.6), 0 0 24px rgba(79, 110, 247, 0.3);
+            border-radius: 2px;
+        }
+
+        @keyframes scanLine {
+            0% {
+                top: 17.5%;
+                opacity: 0.3;
+            }
+            25% {
+                opacity: 1;
+            }
+            50% {
+                top: 82.5%;
+                opacity: 1;
+            }
+            75% {
+                opacity: 0.3;
+            }
+            100% {
+                top: 17.5%;
+                opacity: 0.3;
+            }
+        }
+
+        /* 扫描器占位/覆盖层 */
+        .scanner-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #1a1a2e;
+            z-index: 5;
+            transition: opacity 0.4s ease;
+            gap: 16px;
+        }
+
+        .scanner-placeholder.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .scanner-placeholder .placeholder-icon {
+            font-size: 56px;
+            opacity: 0.8;
+        }
+
+        .scanner-placeholder .placeholder-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        /* 按钮区域 */
+        .scanner-actions {
+            display: flex;
+            gap: 10px;
+            padding: 14px 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 11px 20px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+            letter-spacing: 0.2px;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(79, 110, 247, 0.35);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            box-shadow: 0 6px 20px rgba(79, 110, 247, 0.45);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            background: #fff;
+            color: var(--text);
+            border: 1.5px solid var(--border);
+        }
+
+        .btn-outline:hover {
+            border-color: #cbd5e1;
+            background: #f8fafc;
+        }
+
+        .btn-danger {
+            background: #fff;
+            color: var(--danger);
+            border: 1.5px solid #fecaca;
+        }
+
+        .btn-danger:hover {
+            background: #fef2f2;
+            border-color: #fca5a5;
+        }
+
+        .btn-sm {
+            padding: 8px 14px;
+            font-size: 12px;
+            gap: 4px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+
+        /* ===== 结果卡片 ===== */
+        .result-card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            padding: 24px 20px;
+            display: none;
+            flex-direction: column;
+            gap: 18px;
+            animation: slideUp 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+            border: 1.5px solid #d1fae5;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .result-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #22c55e, #10b981, #34d399);
+            border-radius: 0 0 4px 4px;
+        }
+
+        .result-card.show {
+            display: flex;
+        }
+
+        .result-card.error-state {
+            border-color: #fecaca;
+        }
+        .result-card.error-state::before {
+            background: linear-gradient(90deg, #ef4444, #f87171, #fca5a5);
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .result-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
+        .result-icon.success {
+            background: #ecfdf5;
+            color: #10b981;
+        }
+
+        .result-icon.error {
+            background: #fef2f2;
+            color: #ef4444;
+        }
+
+        .result-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.2px;
+        }
+
+        .result-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* 数据行 */
+        .data-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .data-row {
+            background: #f8fafc;
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: var(--transition);
+        }
+
+        .data-row:hover {
+            border-color: #cbd5e1;
+            background: #f1f5f9;
+        }
+
+        .data-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-secondary);
+        }
+
+        .data-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.3px;
+            word-break: break-all;
+            font-variant-numeric: tabular-nums;
+            font-family: 'SF Mono', 'JetBrains Mono', 'Consolas', 'Menlo', monospace;
+        }
+
+        .data-value.highlight {
+            color: var(--primary);
+            font-size: 22px;
+        }
+
+        /* 错误消息 */
+        .error-detail {
+            background: #fef2f2;
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            border: 1px solid #fecaca;
+            font-size: 13px;
+            color: #991b1b;
+            line-height: 1.5;
+            word-break: break-all;
+        }
+
+        /* 状态指示点 */
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: pulse-dot 1.6s infinite;
+        }
+
+        .status-dot.active {
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        }
+
+        .status-dot.idle {
+            background: #94a3b8;
+            animation: none;
+        }
+
+        @keyframes pulse-dot {
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: scale(1.5);
+            }
+        }
+
+        /* 底部提示 */
+        .footer-note {
+            text-align: center;
+            font-size: 11px;
+            color: #94a3b8;
+            padding: 4px 0;
+        }
+
+        /* 响应式微调 */
+        @media (max-width: 380px) {
+            .scanner-wrapper {
+                max-height: 340px;
+            }
+            .btn {
+                padding: 10px 15px;
+                font-size: 13px;
+            }
+            .data-value {
+                font-size: 17px;
+            }
+            .data-value.highlight {
+                font-size: 19px;
+            }
+            .header h1 {
+                font-size: 20px;
+            }
+        }
+
+        @media (min-width: 420px) {
+            .scanner-wrapper {
+                border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <!-- 头部 -->
+        <div class="header">
+            <span class="header-icon">📱</span>
+            <h1>QR Code Scanner</h1>
+            <p>Scan to decode Sales Order &amp; Item No.</p>
+        </div>
+
+        <!-- 扫描器卡片 -->
+        <div class="scanner-card" id="scannerCard">
+            <div class="scanner-wrapper" id="scannerWrapper">
+                <!-- html5-qrcode 渲染容器 -->
+                <div id="scannerContainer"></div>
+                <!-- jsQR 备用 canvas -->
+                <canvas id="scannerCanvas"></canvas>
+
+                <!-- 扫描框装饰 -->
+                <div class="scan-frame" id="scanFrame">
+                    <div class="corner tl"></div>
+                    <div class="corner tr"></div>
+                    <div class="corner bl"></div>
+                    <div class="corner br"></div>
+                </div>
+                <div class="scan-line" id="scanLine"></div>
+
+                <!-- 占位层 -->
+                <div class="scanner-placeholder" id="scannerPlaceholder">
+                    <span class="placeholder-icon">🎯</span>
+                    <span class="placeholder-text">
+                        Point your camera at a<br><b>QR Code</b> to scan
+                    </span>
+                </div>
+            </div>
+
+            <!-- 按钮 -->
+            <div class="scanner-actions">
+                <button class="btn btn-primary" id="btnStart">
+                    <span>📷</span> Start Scanner
+                </button>
+                <button class="btn btn-danger" id="btnStop" style="display:none;">
+                    <span>⏹</span> Stop
+                </button>
+                <button class="btn btn-outline btn-sm" id="btnSwitch" style="display:none;">
+                    <span>🔄</span> Switch Camera
+                </button>
+            </div>
+        </div>
+
+        <!-- 结果卡片 -->
+        <div class="result-card" id="resultCard">
+            <div class="result-header">
+                <div class="result-icon success" id="resultIcon">✅</div>
+                <div>
+                    <div class="result-title" id="resultTitle">Scan Successful</div>
+                    <div class="result-subtitle" id="resultSubtitle">Decoded from QR Code</div>
+                </div>
+            </div>
+            <div class="data-rows" id="dataRows">
+                <!-- 动态填充 -->
+            </div>
+            <div class="error-detail" id="errorDetail" style="display:none;"></div>
+            <button class="btn btn-primary" id="btnRescan" style="width:100%;">
+                <span>🔄</span> Scan Another QR Code
+            </button>
+        </div>
+
+        <div class="footer-note">
+            <span class="status-dot idle" id="statusDot"></span>
+            <span id="statusText">Ready to scan</span>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // ========== DOM 元素引用 ==========
+            const scannerContainer = document.getElementById('scannerContainer');
+            const scannerCanvas = document.getElementById('scannerCanvas');
+            const scannerContext = scannerCanvas.getContext('2d', { willReadFrequently: true });
+            const scannerPlaceholder = document.getElementById('scannerPlaceholder');
+            const scanFrame = document.getElementById('scanFrame');
+            const scanLine = document.getElementById('scanLine');
+            const scannerCard = document.getElementById('scannerCard');
+            const resultCard = document.getElementById('resultCard');
+            const resultIcon = document.getElementById('resultIcon');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultSubtitle = document.getElementById('resultSubtitle');
+            const dataRows = document.getElementById('dataRows');
+            const errorDetail = document.getElementById('errorDetail');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            const btnStart = document.getElementById('btnStart');
+            const btnStop = document.getElementById('btnStop');
+            const btnSwitch = document.getElementById('btnSwitch');
+            const btnRescan = document.getElementById('btnRescan');
+
+            // ========== 状态变量 ==========
+            let html5QrCode = null;
+            let qrScannerActive = false;
+            let videoStream = null;
+            let currentFacingMode = 'environment'; // 后置摄像头
+            let animationFrameId = null;
+            let isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            let scanResultProcessed = false;
+
+            // ========== Base64 解码函数（来自 HTML1） ==========
+            function decodeBase64(str) {
+                try {
+                    return decodeURIComponent(atob(str).split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                } catch (error) {
+                    console.error('Base64 decoding error:', error);
+                    throw new Error('Invalid base64 encoding');
+                }
+            }
+
+            // ========== 从扫描文本中提取并解析数据 ==========
+            function parseScannedText(scannedText) {
+                if (!scannedText || typeof scannedText !== 'string') {
+                    return null;
+                }
+
+                let trimmed = scannedText.trim();
+                let hValue = null;
+
+                // 尝试1：从 URL 中提取 H 参数
+                // 匹配模式：?H=... 或 &H=... 提取值（直到遇到 &、# 或字符串结束）
+                const hParamMatch = trimmed.match(/[?&]H=([^&?#]+)/i);
+                if (hParamMatch) {
+                    hValue = hParamMatch[1];
+                }
+
+                // 尝试2：如果不是 URL 格式，检查是否以 ?H= 开头
+                if (!hValue && trimmed.startsWith('?H=')) {
+                    hValue = trimmed.substring(3).split('&')[0].split('#')[0];
+                }
+
+                // 尝试3：如果仍然没有，尝试将整个文本作为 base64 解码
+                // （适用于 QR Code 直接包含编码字符串的情况）
+                if (!hValue) {
+                    // 检查是否看起来像 base64（只包含 base64 字符和可能的 = 填充）
+                    if (/^[A-Za-z0-9+/=_-]+$/.test(trimmed) && trimmed.length > 4) {
+                        hValue = trimmed;
+                    }
+                }
+
+                if (!hValue) {
+                    return {
+                        success: false,
+                            error: 'No valid "H" parameter found in the scanned QR Code.\n\nScanned content: ' +
+                            (trimmed.length > 80 ? trimmed.substring(0, 80) + '...' : trimmed),
+                            rawScanned: trimmed
+                    };
+                }
+
+                // 解码 base64
+                let decodedString;
+                try {
+                    decodedString = decodeBase64(hValue);
+                } catch (e) {
+                    return {
+                        success: false,
+                        error: 'Failed to decode the base64 value.\nH parameter: ' + hValue,
+                        rawScanned: trimmed,
+                        hValue: hValue
+                    };
+                }
+
+                // 按 & 分割
+                const parts = decodedString.split('&');
+                if (parts.length !== 2) {
+                    return {
+                        success: false,
+                        error: 'Decoded data does not contain exactly 2 parts separated by "&".\nDecoded: ' +
+                            decodedString + '\nParts found: ' + parts.length,
+                        rawScanned: trimmed,
+                        hValue: hValue,
+                        decodedString: decodedString
+                    };
+                }
+
+                return {
+                    success: true,
+                    salesOrderNo: parts[0],
+                    itemNo: parts[1],
+                    rawScanned: trimmed,
+                    hValue: hValue,
+                    decodedString: decodedString
+                };
+            }
+
+            // ========== 显示结果 ==========
+            function showResult(parseResult) {
+                // 停止扫描
+                stopQRScanner(true);
+
+                // 隐藏扫描框动画
+                scanFrame.style.display = 'none';
+                scanLine.style.display = 'none';
+                scannerPlaceholder.classList.remove('hidden');
+
+                if (parseResult.success) {
+                    // 成功状态
+                    resultCard.classList.remove('error-state');
+                    resultIcon.className = 'result-icon success';
+                    resultIcon.textContent = '✅';
+                    resultTitle.textContent = 'Scan Successful';
+                    resultSubtitle.textContent = 'Decoded from QR Code';
+                    errorDetail.style.display = 'none';
+
+                    dataRows.innerHTML = `
+                        <div class="data-row">
+                            <span class="data-label">📋 Sales Order No.</span>
+                            <span class="data-value highlight">${escapeHTML(parseResult.salesOrderNo)}</span>
+                        </div>
+                        <div class="data-row">
+                            <span class="data-label">📦 Item No.</span>
+                            <span class="data-value highlight">${escapeHTML(parseResult.itemNo)}</span>
+                        </div>
+                    `;
+                    dataRows.style.display = 'flex';
+
+                    // 震动反馈（移动端）
+                    if (isMobileDevice && navigator.vibrate) {
+                        navigator.vibrate([80, 50, 80]);
+                    }
+
+                    updateStatus('idle', 'Scan complete ✓');
+                } else {
+                    // 错误状态
+                    resultCard.classList.add('error-state');
+                    resultIcon.className = 'result-icon error';
+                    resultIcon.textContent = '❌';
+                    resultTitle.textContent = 'Scan Failed';
+                    resultSubtitle.textContent = 'The scanned QR Code is not valid';
+                    dataRows.style.display = 'none';
+                    errorDetail.style.display = 'block';
+                    errorDetail.textContent = parseResult.error;
+
+                    updateStatus('idle', 'Invalid QR Code');
+                }
+
+                // 显示结果卡片
+                resultCard.classList.add('show');
+                // 滚动到结果卡片
+                setTimeout(() => {
+                    resultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 200);
+            }
+
+            // ========== 隐藏结果 ==========
+            function hideResult() {
+                resultCard.classList.remove('show', 'error-state');
+                dataRows.style.display = 'flex';
+                errorDetail.style.display = 'none';
+                scanFrame.style.display = 'block';
+                scanLine.style.display = 'block';
+                scanResultProcessed = false;
+                updateStatus('idle', 'Ready to scan');
+            }
+
+            // ========== 处理扫描到的文本 ==========
+            function processScannedText(scannedText) {
+                if (scanResultProcessed) return; // 防止重复处理
+                scanResultProcessed = true;
+
+                console.log('QR Code scanned:', scannedText);
+                const parseResult = parseScannedText(scannedText);
+                showResult(parseResult);
+            }
+
+            // ========== 更新状态指示 ==========
+            function updateStatus(state, text) {
+                statusDot.className = 'status-dot ' + (state === 'active' ? 'active' : 'idle');
+                statusText.textContent = text || (state === 'active' ? 'Scanning...' : 'Ready to scan');
+            }
+
+            // ========== HTML 转义 ==========
+            function escapeHTML(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ========== 启动 html5-qrcode 扫描器（移动端优先） ==========
+            async function startHtml5QrScanner() {
+                if (html5QrCode) {
+                    try { await html5QrCode.stop();
+                        html5QrCode.clear(); } catch (e) { /* ignore */ }
+                    html5QrCode = null;
+                }
+
+                html5QrCode = new Html5Qrcode('scannerContainer');
+
+                const config = {
+                    fps: 10,
+                    qrbox: function(viewfinderWidth, viewfinderHeight) {
+                        // 动态计算扫描框大小
+                        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                        const boxSize = Math.floor(minEdge * 0.62);
+                        return { width: boxSize, height: boxSize };
+                    },
+                    aspectRatio: 1.0,
+                };
+
+                try {
+                    await html5QrCode.start({ facingMode: currentFacingMode },
+                        config,
+                        (decodedText) => {
+                            // 扫描成功回调
+                            processScannedText(decodedText);
+                        },
+                        (errorMessage) => {
+                            // 扫描中（持续尝试识别）- 不处理
+                        }
+                    );
+                    qrScannerActive = true;
+                    updateStatus('active', 'Scanning...');
+                    console.log('html5-qrcode scanner started');
+                } catch (err) {
+                    console.error('html5-qrcode start error:', err);
+                    // 回退到 jsQR 方案（桌面端）
+                    if (!isMobileDevice) {
+                        console.log('Falling back to jsQR desktop scanner...');
+                        await startDesktopJsQRScanner();
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+
+            // ========== 桌面端 jsQR 扫描器（备用方案） ==========
+            async function startDesktopJsQRScanner() {
+                try {
+                    const constraints = {
+                        video: {
+                            facingMode: currentFacingMode,
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                        },
+                    };
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    videoStream = stream;
+
+                    // 创建隐藏的 video 元素供 jsQR 使用
+                    let hiddenVideo = document.getElementById('hiddenVideo');
+                    if (!hiddenVideo) {
+                        hiddenVideo = document.createElement('video');
+                        hiddenVideo.id = 'hiddenVideo';
+                        hiddenVideo.setAttribute('playsinline', '');
+                        hiddenVideo.style.display = 'none';
+                        document.body.appendChild(hiddenVideo);
+                    }
+                    hiddenVideo.srcObject = stream;
+                    await hiddenVideo.play();
+
+                    qrScannerActive = true;
+                    updateStatus('active', 'Scanning (desktop)...');
+
+                    // 开始扫描循环
+                    function scanLoop() {
+                        if (!qrScannerActive) return;
+
+                        if (hiddenVideo.readyState === hiddenVideo.HAVE_ENOUGH_DATA) {
+                            scannerCanvas.width = hiddenVideo.videoWidth;
+                            scannerCanvas.height = hiddenVideo.videoHeight;
+                            scannerContext.drawImage(hiddenVideo, 0, 0, scannerCanvas.width, scannerCanvas
+                                .height);
+                            try {
+                                const imageData = scannerContext.getImageData(0, 0, scannerCanvas.width,
+                                    scannerCanvas.height);
+                                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                                    inversionAttempts: 'dontInvert',
+                                });
+                                if (code && code.data) {
+                                    processScannedText(code.data);
+                                    return; // 扫描成功，停止循环
+                                }
+                            } catch (e) {
+                                console.warn('jsQR scan error:', e);
+                            }
+                        }
+                        animationFrameId = requestAnimationFrame(scanLoop);
+                    }
+                    animationFrameId = requestAnimationFrame(scanLoop);
+                    console.log('jsQR desktop scanner started');
+                } catch (err) {
+                    console.error('Desktop scanner error:', err);
+                    throw new Error('Unable to access camera. Please check permissions and try again.');
+                }
+            }
+
+            // ========== 启动扫描器 ==========
+            async function startQRScanner() {
+                if (qrScannerActive) return;
+                hideResult();
+                scanResultProcessed = false;
+                scannerPlaceholder.classList.add('hidden');
+                scannerCard.classList.add('scanning');
+                scanFrame.style.display = 'block';
+                scanLine.style.display = 'block';
+
+                btnStart.style.display = 'none';
+                btnStop.style.display = 'inline-flex';
+                btnSwitch.style.display = 'inline-flex';
+
+                try {
+                    // 优先使用 html5-qrcode（移动端和桌面端都支持）
+                    await startHtml5QrScanner();
+                } catch (error) {
+                    console.error('Failed to start scanner:', error);
+                    alert('Unable to start camera.\n\n' + error.message +
+                        '\n\nPlease ensure you have granted camera permissions.');
+                    stopQRScanner(false);
+                }
+            }
+
+            // ========== 停止扫描器 ==========
+            async function stopQRScanner(keepPlaceholderHidden = false) {
+                qrScannerActive = false;
+
+                // 停止 html5-qrcode
+                if (html5QrCode) {
+                    try {
+                        await html5QrCode.stop();
+                        html5QrCode.clear();
+                    } catch (e) {
+                        console.warn('Error stopping html5-qrcode:', e);
+                    }
+                    html5QrCode = null;
+                }
+
+                // 停止 jsQR 动画循环
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+
+                // 停止视频流
+                if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    videoStream = null;
+                }
+
+                // 清理隐藏视频
+                const hiddenVideo = document.getElementById('hiddenVideo');
+                if (hiddenVideo) {
+                    hiddenVideo.srcObject = null;
+                    hiddenVideo.remove();
+                }
+
+                // 重置 UI
+                scannerCard.classList.remove('scanning');
+                if (!keepPlaceholderHidden) {
+                    scannerPlaceholder.classList.remove('hidden');
+                }
+                scanFrame.style.display = 'block';
+                scanLine.style.display = 'block';
+
+                btnStart.style.display = 'inline-flex';
+                btnStop.style.display = 'none';
+                btnSwitch.style.display = 'none';
+
+                updateStatus('idle', 'Ready to scan');
+                console.log('Scanner stopped');
+            }
+
+            // ========== 切换摄像头 ==========
+            async function switchCamera() {
+                currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+                const wasActive = qrScannerActive;
+                await stopQRScanner(true);
+                if (wasActive) {
+                    // 短暂延迟后重新启动
+                    setTimeout(async () => {
+                        scannerPlaceholder.classList.add('hidden');
+                        scannerCard.classList.add('scanning');
+                        btnStart.style.display = 'none';
+                        btnStop.style.display = 'inline-flex';
+                        btnSwitch.style.display = 'inline-flex';
+                        try {
+                            await startHtml5QrScanner();
+                        } catch (e) {
+                            alert('Failed to switch camera: ' + e.message);
+                            stopQRScanner(false);
+                        }
+                    }, 400);
+                }
+            }
+
+            // ========== 重新扫描 ==========
+            function rescan() {
+                hideResult();
+                scanResultProcessed = false;
+                // 自动启动扫描
+                startQRScanner();
+            }
+
+            // ========== 事件绑定 ==========
+            btnStart.addEventListener('click', startQRScanner);
+            btnStop.addEventListener('click', () => stopQRScanner(false));
+            btnSwitch.addEventListener('click', switchCamera);
+            btnRescan.addEventListener('click', rescan);
+
+            // 点击扫描器占位区域也可以启动扫描
+            scannerPlaceholder.addEventListener('click', function(e) {
+                if (!qrScannerActive) {
+                    startQRScanner();
+                }
+            });
+
+            // ========== 页面初始化 ==========
+            function init() {
+                // 移动端检测
+                if (isMobileDevice) {
+                    document.querySelector('.header-icon').textContent = '📱';
+                    statusText.textContent = 'Tap Start Scanner to begin';
+                } else {
+                    document.querySelector('.header-icon').textContent = '💻';
+                    statusText.textContent = 'Click Start Scanner or scan via keyboard';
+                }
+
+                // 初始状态
+                updateStatus('idle', 'Ready to scan');
+                btnStop.style.display = 'none';
+                btnSwitch.style.display = 'none';
+                resultCard.classList.remove('show');
+                scannerPlaceholder.classList.remove('hidden');
+                scanFrame.style.display = 'block';
+                scanLine.style.display = 'block';
+
+                console.log('QR Scanner initialized');
+                console.log('Mobile device:', isMobileDevice);
+                console.log('html5-qrcode available:', typeof Html5Qrcode !== 'undefined');
+                console.log('jsQR available:', typeof jsQR !== 'undefined');
+            }
+
+            // ========== 页面卸载时清理 ==========
+            window.addEventListener('beforeunload', () => {
+                if (qrScannerActive) {
+                    stopQRScanner(false);
+                }
+            });
+
+            // 页面隐藏时停止扫描（节省资源）
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden && qrScannerActive) {
+                    stopQRScanner(true);
+                    // 页面恢复时提示用户重新扫描
+                    scannerPlaceholder.classList.remove('hidden');
+                    btnStart.style.display = 'inline-flex';
+                    btnStop.style.display = 'none';
+                    btnSwitch.style.display = 'none';
+                    scanResultProcessed = false;
+                }
+            });
+
+            // ========== 启动 ==========
+            init();
+        })();
+    </script>
+</body>
+</html>
